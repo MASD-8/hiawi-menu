@@ -2543,10 +2543,12 @@ async function connectFirebase(){
   const config = {apiKey:key,databaseURL:url,projectId:project};
   const ok = await initFirebase(config);
   if(ok){
-    // Save config
+    // Save config locally
     const s = DB.get('settings_'+currentBranch,{});
     s.firebaseConfig = config;
     DB.set('settings_'+currentBranch,s);
+    // Save as global config so ALL devices (including customer mobile) can auto-connect
+    DB.set('firebase_global_config', config);
     if(statusEl){statusEl.textContent='✅ متصل بـ Firebase - الطلبات تتزامن بين كل الأجهزة!';statusEl.style.color='#27ae60';statusEl.style.borderColor='rgba(39,174,96,.3)';}
     startFirebaseSync(currentBranch);
     showToast('✅ Firebase متصل!','ok');
@@ -2575,6 +2577,42 @@ function loadFirebaseConfig(){
     });
   }
 }
+
+// ══ AUTO-INIT FIREBASE ON ALL DEVICES (including customer mobile) ══
+// This runs on page load — tries saved config first, then hardcoded fallback
+async function autoInitFirebase() {
+  // 1. Try config saved by admin in localStorage
+  const s = DB.get('settings_' + currentBranch, {});
+  if (s.firebaseConfig && s.firebaseConfig.apiKey) {
+    const ok = await initFirebase(s.firebaseConfig);
+    if (ok) { startFirebaseSync(currentBranch); return; }
+  }
+  // 2. Try global config saved by admin
+  const gc = DB.get('firebase_global_config', null);
+  if (gc && gc.apiKey) {
+    const ok = await initFirebase(gc);
+    if (ok) { startFirebaseSync(currentBranch); return; }
+  }
+  // 3. ⚠️ HARDCODED CONFIG — يشتغل على كل جهاز بدون إعداد
+  // غيّر هذه القيم بقيمك الحقيقية من Firebase
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBZ04cJT4gNztHeX3361H2L4Y7swKxATp0",           // ← حط apiKey هنا
+    databaseURL: "https://final-menu-37391-default-rtdb.asia-southeast1.firebasedatabase.app",      // ← حط databaseURL هنا
+    projectId: "final-menu-37391"         // ← حط projectId هنا
+  };
+  if (FIREBASE_CONFIG.apiKey) {
+    const ok = await initFirebase(FIREBASE_CONFIG);
+    if (ok) { startFirebaseSync(currentBranch); }
+  }
+}
+
+// Save global config when admin connects so all devices can use it
+const _origConnectFirebase = typeof connectFirebase === 'function' ? connectFirebase : null;
+
+// Run auto-init after page load
+window.addEventListener('load', () => {
+  setTimeout(autoInitFirebase, 1500);
+});
 
 // ══ POLLING FALLBACK (same network) ══
 // Even without Firebase, poll shared server file if on same network
