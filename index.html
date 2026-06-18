@@ -476,7 +476,24 @@ input:checked+.toggle-slider:before{transform:translateX(-20px)}
 
   <!-- ORDERS -->
   <div class="admin-section active" id="section-orders">
-    <div class="section-header"><h3>الطلبات</h3><button class="action-btn" onclick="renderOrders()">🔄</button></div>
+    <div class="section-header">
+      <h3>الطلبات</h3>
+      <div style="display:flex;gap:8px">
+        <button class="action-btn" onclick="renderOrders()">🔄</button>
+        <button onclick="clearAllOrders()" style="background:#c0392b;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-family:Tajawal,sans-serif;font-size:12px;font-weight:700;cursor:pointer">🗑️ تصفير</button>
+      </div>
+    </div>
+    <div id="cashier-total" style="background:linear-gradient(135deg,#1a2e1a,#0d2818);border:1px solid #b8882a;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:11px;color:#b8882a;margin-bottom:4px">💰 إجمالي الكاشير</div>
+        <div id="cashier-total-amount" style="font-size:22px;font-weight:900;color:#f0c960">0 د.ع</div>
+      </div>
+      <div style="text-align:left">
+        <div style="font-size:11px;color:#aaa;margin-bottom:2px">نقدي: <span id="cashier-cash" style="color:#27ae60;font-weight:700">0</span></div>
+        <div style="font-size:11px;color:#aaa;margin-bottom:2px">أونلاين: <span id="cashier-online" style="color:#3498db;font-weight:700">0</span></div>
+        <div style="font-size:11px;color:#aaa">طلبات: <span id="cashier-count" style="color:#f0c960;font-weight:700">0</span></div>
+      </div>
+    </div>
     <div id="orders-list"></div>
   </div>
 
@@ -1284,34 +1301,60 @@ function loadAdminData(){renderOrders();renderAdminMenu();renderTables();renderB
 
 // ===== ORDERS =====
 function renderOrders(){
-  const orders=DB.get('orders_'+currentBranch,[]);
+  const allOrders=DB.get('orders_'+currentBranch,[]);
+  // Sort: newest first
+  const orders=[...allOrders].sort((a,b)=>new Date(b.time)-new Date(a.time));
   const el=$('orders-list');
+  // Update cashier totals
+  updateCashierTotal(allOrders);
   if(!orders.length){el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">لا طلبات</div></div>';return;}
   const sMap={pending:['⏳ بانتظار','sp'],preparing:['👨‍🍳 يتحضر','sr'],delivering:['🚀 بالطريق','sd'],done:['✅ تم','sn'],cancelled:['❌ ملغي','sc']};
+  // Color map per status
+  const bgMap={pending:'background:#1a1a2e;border-color:#f39c12',preparing:'background:#1a2a1a;border-color:#27ae60',delivering:'background:#1a1a3a;border-color:#3498db',done:'background:#111;border-color:#555',cancelled:'background:#1a0a0a;border-color:#e74c3c'};
   el.innerHTML=orders.map(o=>`
-    <div class="order-card">
+    <div class="order-card" style="${bgMap[o.status]||bgMap.pending};border-width:2px;margin-bottom:14px">
       <div class="order-header">
-        <div>
-          <div class="order-id">${o.id}</div>
-          <div class="order-time">🪑 طاولة ${o.tableNum||'—'} • ${o.name} • ${o.phone}</div>
-          <div class="order-time">${fmtTime(o.time)} • ${o.type==='delivery'?'🛵':'🪑'} • ${o.payment==='cash'?'💵':'💳'}</div>
+        <div style="flex:1">
+          <div class="order-id" style="color:#f0c960;font-size:13px;font-weight:800">${o.id}</div>
+          <div class="order-time" style="color:#ddd;font-size:12px;margin-top:2px">🪑 طاولة ${o.tableNum||'—'} • ${fmtTime(o.time)}</div>
+          <div class="order-time" style="color:#aaa;font-size:11px">${o.type==='delivery'?'🛵 توصيل':'🪑 محلي'} • ${o.payment==='cash'?'💵 كاش':'💳 أونلاين'}</div>
         </div>
-        <div class="order-status ${sMap[o.status]?.[1]||'sp'}">${sMap[o.status]?.[0]||o.status}</div>
+        <div class="order-status ${sMap[o.status]?.[1]||'sp'}" style="font-size:12px;padding:6px 12px">${sMap[o.status]?.[0]||o.status}</div>
       </div>
-      <div class="order-items">${o.items.map(i=>`${i.emoji||'🍽️'} ${i.name} ×${i.qty}`).join(' • ')}</div>
-      ${o.notes?`<div style="font-size:12px;color:var(--goldl);margin-bottom:8px">📝 ${o.notes}</div>`:''}
-      <div class="order-footer">
-        <div class="order-total">${fmt(o.total)} د.ع</div>
+      <div class="order-items" style="color:#e0e0e0;font-size:13px;font-weight:600;margin:8px 0;line-height:1.6">${o.items.map(i=>`${i.emoji||'🍽️'} ${i.name} ×${i.qty}`).join('<br>')}</div>
+      ${o.notes?`<div style="font-size:12px;color:#f0c960;background:rgba(240,201,96,.1);border-radius:6px;padding:6px 10px;margin-bottom:8px">📝 ${o.notes}</div>`:''}
+      <div class="order-footer" style="border-top:1px solid rgba(255,255,255,.1);padding-top:10px;margin-top:6px">
+        <div class="order-total" style="color:#f0c960;font-size:18px;font-weight:900">${fmt(o.total)} د.ع</div>
         <div class="order-actions">
-          ${o.status==='pending'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','preparing')">👨‍🍳 يتحضر</button>`:''}
-          ${o.status==='preparing'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','delivering')">🚀 بالطريق</button>`:''}
-          ${o.status==='delivering'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','done')">✅ تم</button>`:''}
+          ${o.status==='pending'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','preparing')" style="background:#27ae60;color:#fff;border-color:#27ae60">👨‍🍳 يتحضر</button>`:''}
+          ${o.status==='preparing'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','delivering')" style="background:#3498db;color:#fff;border-color:#3498db">🚀 بالطريق</button>`:''}
+          ${o.status==='delivering'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','done')" style="background:#b8882a;color:#fff;border-color:#b8882a;font-size:14px;padding:8px 16px">✅ تم التسليم</button>`:''}
           ${['pending','preparing'].includes(o.status)?`<button class="action-btn danger" onclick="cancelItem('${o.id}')">إلغاء وجبة</button>`:''}
-          ${!['done','cancelled'].includes(o.status)?`<button class="action-btn danger" onclick="setOrderStatus('${o.id}','cancelled')">❌ إلغاء الطلب</button>`:''}
+          ${!['done','cancelled'].includes(o.status)?`<button class="action-btn danger" onclick="setOrderStatus('${o.id}','cancelled')">❌ إلغاء</button>`:''}
           <button class="action-btn" onclick="printOrder('${o.id}')">🖨️</button>
         </div>
       </div>
     </div>`).join('');
+}
+
+function updateCashierTotal(orders){
+  const done = (orders||[]).filter(o=>o.status==='done');
+  const cash = done.filter(o=>o.payment==='cash').reduce((s,o)=>s+(o.total||0),0);
+  const online = done.filter(o=>o.payment==='online').reduce((s,o)=>s+(o.total||0),0);
+  const el1=$('cashier-total-amount'); if(el1) el1.textContent=fmt(cash+online)+' د.ع';
+  const el2=$('cashier-cash'); if(el2) el2.textContent=fmt(cash)+' د.ع';
+  const el3=$('cashier-online'); if(el3) el3.textContent=fmt(online)+' د.ع';
+  const el4=$('cashier-count'); if(el4) el4.textContent=done.length;
+}
+
+function clearAllOrders(){
+  if(!confirm('تصفير كل الطلبات؟ هذا يمسح كل الطلبات الحالية.')) return;
+  DB.set('orders_'+currentBranch,[]);
+  // Also clear from Firebase
+  try{ if(_fbDb) _fbDb.ref('branches/'+currentBranch+'/orders').remove(); }catch(e){}
+  addLog('تصفير كل الطلبات');
+  renderOrders();
+  showToast('✅ تم تصفير الطلبات','ok');
 }
 
 function setOrderStatus(id,status){
@@ -1320,8 +1363,15 @@ function setOrderStatus(id,status){
   o.status=status;o.history.push({status,time:new Date().toISOString()});
   DB.set('orders_'+currentBranch,orders);
   if(currentOrder?.id===id)currentOrder=o;
+  // Push update to Firebase
+  try{ if(_fbDb) _fbDb.ref('branches/'+currentBranch+'/orders/'+id.replace(/[.#$\[\]]/g,'_')).update({status,history:o.history}); }catch(e){}
   addLog(`تحديث طلب #${id} → ${status}`);
-  renderOrders();showToast('✅ تم تحديث الطلب');
+  renderOrders();
+  if(status==='done'){
+    showToast('✅ تم التسليم — تم إضافة المبلغ للكاشير','ok');
+  } else {
+    showToast('✅ تم تحديث الطلب');
+  }
 }
 
 function cancelItem(orderId){
@@ -1410,7 +1460,7 @@ function renderAdminMenu(filter){
           <input type="file" id="cat-img-${cat.id}" accept="image/*" style="display:none" onchange="uploadCatImg('${cat.id}',this)">
         </div>
         <div style="flex:1">
-          <div style="font-size:14px;font-weight:700;color:#f0f0f0">${cat.name}</div>
+          <div style="font-size:15px;font-weight:800;color:#ffffff">${cat.name}</div>
           <div style="font-size:11px;color:#777;margin-top:2px">${catItems.length} وجبة ${hiddenCount ? '• '+hiddenCount+' مخفية' : ''}</div>
         </div>
         <div style="display:flex;gap:6px">
@@ -1454,13 +1504,13 @@ function renderAdminMenu(filter){
               <div style="font-size:12px">لا وجبات في هذه الفئة بعد</div>
             </div>` :
             catItems.map(item => `
-            <div class="manage-row ${item.hidden ? 'is-hidden' : ''}" style="padding:10px 0;border-bottom:1px solid #2a2a2a">
-              <div class="manage-thumb">${item.img ? `<img src="${item.img}">` : (item.emoji||'🍽️')}</div>
-              <div class="manage-info">
-                <div class="manage-name">${item.name} ${item.hidden ? '<span style="font-size:10px;color:#555">(مخفي)</span>' : ''}</div>
-                <div class="manage-meta">${fmt(item.price)} د.ع</div>
+            <div class="manage-row ${item.hidden ? 'is-hidden' : ''}" style="padding:12px 0;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px">
+              <div class="manage-thumb" style="font-size:22px;min-width:36px;text-align:center">${item.img ? `<img src="${item.img}" style="width:36px;height:36px;border-radius:8px;object-fit:cover">` : (item.emoji||'🍽️')}</div>
+              <div class="manage-info" style="flex:1">
+                <div class="manage-name" style="font-size:14px;font-weight:700;color:#ffffff;line-height:1.3">${item.name} ${item.hidden ? '<span style="font-size:10px;color:#f39c12;background:rgba(243,156,18,.15);border-radius:4px;padding:1px 5px">(مخفي)</span>' : ''}</div>
+                <div class="manage-meta" style="font-size:13px;color:#f0c960;font-weight:600;margin-top:2px">${fmt(item.price)} د.ع</div>
               </div>
-              <button class="hide-btn ${item.hidden ? 'is-hidden' : ''}" onclick="toggleHide('${item.id}')" style="font-size:11px;padding:5px 8px">${item.hidden ? '👁️' : '🙈'}</button>
+              <button class="hide-btn ${item.hidden ? 'is-hidden' : ''}" onclick="toggleHide('${item.id}')" style="font-size:11px;padding:5px 8px;background:rgba(255,255,255,.05);border:1px solid #444;border-radius:6px;color:#ddd;cursor:pointer">${item.hidden ? '👁️ إظهار' : '🙈 إخفاء'}</button>
               <label class="toggle" style="margin:0 4px" title="${item.available ? 'متوفر' : 'نفذ'}">
                 <input type="checkbox" ${item.available ? 'checked' : ''} onchange="toggleAvail('${item.id}',this.checked)">
                 <span class="tslider"></span>
@@ -2247,20 +2297,66 @@ function showTableQR(tableNum) {
 // ===== OVERRIDE printQR with WiFi info =====
 function printQR() {
   const modal = document.getElementById('qr-modal');
+  if(!modal){ showToast('❌ خطأ في الطباعة','err'); return; }
   const menuUrl = modal.dataset.menuUrl || '';
   const tableNum = modal.dataset.tableNum || '';
   const hasWifi = modal.dataset.hasWifi === 'true';
   const ssid = modal.dataset.ssid || '';
-  const qr = document.getElementById('qr-code-box').innerHTML;
-  const bc = document.getElementById('barcode-canvas').toDataURL();
+
+  // Get QR image as data URL
+  let qrImg = '';
+  const qrBox = document.getElementById('qr-code-box');
+  if(qrBox){
+    const qrCanvas = qrBox.querySelector('canvas');
+    const qrSvg = qrBox.querySelector('svg');
+    if(qrCanvas){ qrImg = `<img src="${qrCanvas.toDataURL()}" style="width:180px;height:180px">`; }
+    else if(qrSvg){ qrImg = qrSvg.outerHTML; }
+    else { qrImg = qrBox.innerHTML; }
+  }
+
+  // Get barcode image
+  let bcImg = '';
+  const bcCanvas = document.getElementById('barcode-canvas');
+  if(bcCanvas){ try{ bcImg = `<img src="${bcCanvas.toDataURL()}" style="max-width:200px">`; }catch(e){} }
+
+  const html = `<!DOCTYPE html>
+<html dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>طاولة ${tableNum}</title>
+<style>
+  @media print { body{margin:0} .no-print{display:none} }
+  body{font-family:Arial,sans-serif;text-align:center;padding:20px;background:#fff;max-width:300px;margin:0 auto;color:#000}
+  h2{font-size:18px;font-weight:900;margin-bottom:2px}
+  h3{font-size:14px;color:#555;margin-bottom:16px}
+  .qr-wrap{margin:0 auto 10px;display:inline-block}
+  .qr-wrap img, .qr-wrap svg{width:180px;height:180px;display:block}
+  .bc-wrap img{max-width:200px;margin:0 auto;display:block}
+  .wifi{background:#f9f6ee;border:1px solid #ddd;border-radius:8px;padding:10px 14px;font-size:12px;margin:12px auto;max-width:240px;text-align:right}
+  .url{font-size:9px;color:#999;margin-top:12px;word-break:break-all}
+  .footer{font-size:10px;color:#aaa;margin-top:8px}
+  .divider{border:none;border-top:1px dashed #ccc;margin:12px 0}
+  .btn{background:#000;color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:13px;cursor:pointer;margin-top:12px}
+</style>
+</head>
+<body>
+  <h2>🔥 مطعم حياوي براند</h2>
+  <h3>🪑 طاولة ${tableNum}</h3>
+  <div class="qr-wrap">${qrImg}</div>
+  <hr class="divider">
+  <div class="bc-wrap">${bcImg}</div>
+  ${hasWifi ? `<div class="wifi">📶 WiFi: <b>${ssid}</b><br><span style="font-size:10px;color:#888">امسح للاتصال ثم يُفتح المنيو</span></div>` : ''}
+  <div class="url">🔗 ${menuUrl}</div>
+  <div class="footer">امسح الكود للوصول للمنيو</div>
+  <button class="btn no-print" onclick="window.print()">🖨️ طباعة</button>
+  <script>window.onload=function(){setTimeout(function(){window.print();},600);}<\/script>
+</body>
+</html>`;
+
   const w = window.open('', '_blank');
-  w.document.write(`<html dir="rtl"><head><title>طاولة ${tableNum}</title><style>body{font-family:Arial;text-align:center;padding:30px;background:#fff;max-width:280px;margin:0 auto}h2{font-size:16px;margin-bottom:2px}h3{font-size:13px;color:#555;margin-bottom:14px}img{max-width:170px}.wifi{background:#f9f6ee;border:1px solid #ddd;border-radius:8px;padding:10px;font-size:11px;margin:10px auto;max-width:220px}.url{font-size:9px;color:#aaa;margin-top:10px;word-break:break-all}</style></head><body>
-    <h2>🔥 مطعم حياوي براند</h2><h3>طاولة ${tableNum}</h3>${qr}<br><img src="${bc}">
-    ${hasWifi ? `<div class="wifi">📶 شبكة WiFi: <b>${ssid}</b><br>امسح للاتصال ثم يُفتح المنيو تلقائياً</div>` : ''}
-    <div class="url">🔗 ${menuUrl}</div>
-    <p style="font-size:10px;color:#aaa;margin-top:8px">امسح الكود للوصول للمنيو</p>
-  </body></html>`);
-  setTimeout(() => w.print(), 500);
+  if(!w){ showToast('❌ السماح بالنوافذ المنبثقة في المتصفح','err'); return; }
+  w.document.write(html);
+  w.document.close();
 }
 
 // ===== SAVE SETTINGS (full version) =====
