@@ -191,15 +191,20 @@ select.form-input option{background:var(--gp);color:var(--white)}
 
 /* MANAGE ITEMS */
 .section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.section-header h3{font-size:16px;font-weight:700;color:var(--goldl)}
-.add-card{background:var(--card);border:1px dashed var(--borderb);border-radius:16px;padding:20px;margin-bottom:16px;display:none}
+.section-header h3{font-size:16px;font-weight:700;color:#f0c960}
+.add-card{background:#1a1a1a;border:1px dashed #b8882a;border-radius:16px;padding:20px;margin-bottom:16px;display:none}
 .add-card.open{display:block}
-.manage-item{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px}
-.manage-item-img{width:50px;height:50px;border-radius:8px;background:var(--gm);display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex-shrink:0}
+.manage-item{display:flex;align-items:center;gap:12px;background:#1e1e1e;border:1px solid #333;border-radius:12px;padding:12px;margin-bottom:8px}
+.manage-item-img{width:50px;height:50px;border-radius:8px;background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex-shrink:0}
 .manage-item-img img{width:100%;height:100%;object-fit:cover}
 .manage-item-info{flex:1}
-.manage-item-name{font-size:14px;font-weight:700;margin-bottom:2px}
-.manage-item-meta{font-size:12px;color:var(--goldl)}
+.manage-item-name{font-size:14px;font-weight:700;color:#ffffff;margin-bottom:2px}
+.manage-item-meta{font-size:12px;color:#f0c960;font-weight:600}
+/* Admin dark overrides */
+#admin-panel .adm-fi{background:#1e1e1e;border:1px solid #444;color:#ffffff}
+#admin-panel .adm-fi::placeholder{color:#666}
+#admin-panel label{color:#cccccc}
+#admin-panel select{background:#1e1e1e;color:#ffffff;border:1px solid #444}
 
 /* TOGGLE */
 .toggle{position:relative;width:44px;height:24px;flex-shrink:0}
@@ -1200,21 +1205,55 @@ function switchTab(tab,btn){
 }
 
 // ===== TRACKING =====
+let _trackListener = null;
+
 function renderTracking(){
   if(!currentOrder){$('no-order').style.display='';$('track-card').style.display='none';return;}
-  const orders=DB.get('orders_'+currentBranch,[]);
-  const o=orders.find(o=>o.id===currentOrder.id)||currentOrder;
-  currentOrder=o;
-  $('no-order').style.display='none';$('track-card').style.display='';
+  // Start Firebase real-time listener for this order
+  startOrderTracking(currentOrder.id);
+  updateTrackUI(currentOrder);
+}
+
+function startOrderTracking(orderId){
+  // Stop old listener
+  if(_trackListener){ try{_trackListener();}catch(e){} _trackListener=null; }
+  if(!_fbDb || !orderId) return;
+  const safeId = orderId.replace(/[.#$\[\]]/g,'_');
+  const ref = _fbDb.ref('branches/'+currentBranch+'/orders/'+safeId);
+  const listener = ref.on('value', snap => {
+    const data = snap.val();
+    if(!data) return;
+    // Update currentOrder with latest status from Firebase
+    currentOrder = {...currentOrder, ...data};
+    // Also update in local storage
+    const orders = DB.get('orders_'+currentBranch,[]);
+    const idx = orders.findIndex(o=>o.id===orderId);
+    if(idx>=0){ orders[idx]={...orders[idx],...data}; DB.set('orders_'+currentBranch,orders); }
+    updateTrackUI(currentOrder);
+  }, err => console.warn('Track listener error:', err));
+  _trackListener = () => ref.off('value', listener);
+}
+
+function updateTrackUI(o){
+  if(!o) return;
+  $('no-order').style.display='none';
+  $('track-card').style.display='';
   $('track-id').textContent=o.id;
-  const bMap={pending:['⏳ بانتظار التأكيد','sp'],preparing:['👨‍🍳 يتحضر','sr'],delivering:['🚀 في الطريق','sd'],done:['✅ تم التسليم','sn'],cancelled:['❌ ملغي','sc']};
+  const bMap={
+    pending:['⏳ بانتظار التأكيد','sp'],
+    preparing:['👨‍🍳 يتحضر','sr'],
+    delivering:['🚀 في الطريق','sd'],
+    done:['✅ تم التسليم','sn'],
+    cancelled:['❌ ملغي','sc']
+  };
   const b=bMap[o.status]||['—','sp'];
-  $('track-badge').className='order-status '+b[1];$('track-badge').textContent=b[0];
+  $('track-badge').className='order-status '+b[1];
+  $('track-badge').textContent=b[0];
   const steps=[
     {key:'pending',label:'تم استلام الطلب',sub:'جاري مراجعة طلبك',icon:'✅'},
     {key:'preparing',label:'يتحضر في المطبخ',sub:'الشيف يحضر وجبتك',icon:'👨‍🍳'},
     {key:'delivering',label:'في الطريق إليك',sub:'طلبك قادم!',icon:'🚀'},
-    {key:'done',label:'تم التسليم',sub:'بالعافية!',icon:'🎉'},
+    {key:'done',label:'تم التسليم 🎉',sub:'بالعافية! شكراً لزيارتك',icon:'🎉'},
   ];
   const ord=['pending','preparing','delivering','done'];
   const ci=ord.indexOf(o.status);
@@ -1222,10 +1261,14 @@ function renderTracking(){
     <div class="track-step ${i<ci?'done':''} ${i===ci?'active':''}">
       <div class="track-dot">${s.icon}</div>
       <div class="track-info">
-        <div class="track-title" style="color:${i<=ci?'var(--white)':'var(--wdim)'}">${s.label}</div>
+        <div class="track-title" style="color:${i<=ci?'var(--white)':'var(--wdim)'};font-weight:${i<=ci?'700':'400'}">${s.label}</div>
         <div class="track-sub">${s.sub}</div>
       </div>
     </div>`).join('');
+  // Show toast on status change
+  if(o.status==='preparing') showToast('👨‍🍳 طلبك يتحضر الآن!','gold');
+  if(o.status==='delivering') showToast('🚀 طلبك في الطريق إليك!','gold');
+  if(o.status==='done') showToast('🎉 تم تسليم طلبك! بالعافية','gold');
 }
 
 // ===== BOOKING =====
@@ -1577,6 +1620,7 @@ function quickAddItem(catId){
   addLog(`إضافة وجبة: ${name} في فئة ${catId}`);
   // Broadcast menu update
   try{if(typeof _bc!=='undefined'&&_bc)_bc.postMessage({type:'menu_update',branch:currentBranch});}catch(e){}
+  pushMenuToFirebase();
   renderAdminMenu();
   renderMenu();
   // Re-open cat items
@@ -1623,6 +1667,7 @@ function toggleHide(id){
   item.hidden=!item.hidden;
   DB.set('items_'+currentBranch,items);
   addLog(`${item.hidden?'إخفاء':'إظهار'} وجبة: ${item.name}`);
+  pushMenuToFirebase();
   renderAdminMenu();renderMenu();
   showToast(`${item.hidden?'🙈 تم إخفاء':'👁️ تم إظهار'} "${item.name}"`);
 }
@@ -1632,6 +1677,7 @@ function toggleAvail(id,val){
   const item=items.find(i=>i.id===id);if(!item)return;
   item.available=val;DB.set('items_'+currentBranch,items);
   addLog(`${val?'تفعيل':'تعطيل'} وجبة: ${item.name}`);
+  pushMenuToFirebase();
   renderMenu();showToast(`${val?'✅ متوفرة':'❌ نفذت'}: ${item.name}`);
 }
 
@@ -1646,6 +1692,7 @@ function addItem(){
   items.push({id:'i'+Date.now(),catId,name,price,desc:$('ni-desc').value,emoji:$('ni-emoji').value||'🍽️',img,available:true,hidden:false});
   DB.set('items_'+currentBranch,items);
   addLog(`إضافة وجبة: ${name}`);
+  pushMenuToFirebase();
   renderAdminMenu();renderMenu();
   toggleCard('add-item-card');
   ['ni-name','ni-price','ni-desc','ni-emoji'].forEach(id=>$(id).value='');
@@ -1659,6 +1706,7 @@ function deleteItem(id){
   const item=items.find(i=>i.id===id);
   DB.set('items_'+currentBranch,items.filter(i=>i.id!==id));
   addLog(`حذف وجبة: ${item?.name}`);
+  pushMenuToFirebase();
   renderAdminMenu();renderMenu();showToast('✅ تم الحذف');
 }
 
@@ -1668,6 +1716,7 @@ function addCategory(){
   cats.push({id:'c'+Date.now(),name,icon:'🍽️',img:''});
   DB.set('categories_'+currentBranch,cats);
   addLog(`إضافة فئة: ${name}`);
+  pushMenuToFirebase();
   renderAdminMenu();renderMenu();showToast('✅ تمت إضافة الفئة');
 }
 function triggerCatImg(catId){document.getElementById('cat-img-'+catId)?.click();}
@@ -2294,62 +2343,42 @@ function showTableQR(tableNum) {
   openModal('qr-modal');
 }
 
-// ===== OVERRIDE printQR with WiFi info =====
+// ===== OVERRIDE printQR - barcode only =====
 function printQR() {
   const modal = document.getElementById('qr-modal');
   if(!modal){ showToast('❌ خطأ في الطباعة','err'); return; }
-  const menuUrl = modal.dataset.menuUrl || '';
   const tableNum = modal.dataset.tableNum || '';
-  const hasWifi = modal.dataset.hasWifi === 'true';
-  const ssid = modal.dataset.ssid || '';
 
-  // Get QR image as data URL
-  let qrImg = '';
-  const qrBox = document.getElementById('qr-code-box');
-  if(qrBox){
-    const qrCanvas = qrBox.querySelector('canvas');
-    const qrSvg = qrBox.querySelector('svg');
-    if(qrCanvas){ qrImg = `<img src="${qrCanvas.toDataURL()}" style="width:180px;height:180px">`; }
-    else if(qrSvg){ qrImg = qrSvg.outerHTML; }
-    else { qrImg = qrBox.innerHTML; }
-  }
-
-  // Get barcode image
+  // Get barcode image only
   let bcImg = '';
   const bcCanvas = document.getElementById('barcode-canvas');
-  if(bcCanvas){ try{ bcImg = `<img src="${bcCanvas.toDataURL()}" style="max-width:200px">`; }catch(e){} }
+  if(bcCanvas){
+    try{ bcImg = `<img src="${bcCanvas.toDataURL()}" style="max-width:260px;display:block;margin:0 auto">`; }catch(e){}
+  }
+  if(!bcImg){ showToast('❌ الباركود غير متوفر','err'); return; }
 
   const html = `<!DOCTYPE html>
 <html dir="rtl">
 <head>
 <meta charset="UTF-8">
-<title>طاولة ${tableNum}</title>
+<title>باركود طاولة ${tableNum}</title>
 <style>
-  @media print { body{margin:0} .no-print{display:none} }
-  body{font-family:Arial,sans-serif;text-align:center;padding:20px;background:#fff;max-width:300px;margin:0 auto;color:#000}
-  h2{font-size:18px;font-weight:900;margin-bottom:2px}
-  h3{font-size:14px;color:#555;margin-bottom:16px}
-  .qr-wrap{margin:0 auto 10px;display:inline-block}
-  .qr-wrap img, .qr-wrap svg{width:180px;height:180px;display:block}
-  .bc-wrap img{max-width:200px;margin:0 auto;display:block}
-  .wifi{background:#f9f6ee;border:1px solid #ddd;border-radius:8px;padding:10px 14px;font-size:12px;margin:12px auto;max-width:240px;text-align:right}
-  .url{font-size:9px;color:#999;margin-top:12px;word-break:break-all}
-  .footer{font-size:10px;color:#aaa;margin-top:8px}
-  .divider{border:none;border-top:1px dashed #ccc;margin:12px 0}
-  .btn{background:#000;color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:13px;cursor:pointer;margin-top:12px}
+  @media print {
+    @page{margin:5mm}
+    body{margin:0}
+    .no-print{display:none !important}
+  }
+  body{font-family:Arial,sans-serif;text-align:center;padding:16px;background:#fff;color:#000;max-width:320px;margin:0 auto}
+  h3{font-size:15px;font-weight:900;margin-bottom:4px}
+  .sub{font-size:12px;color:#555;margin-bottom:14px}
+  .bc{margin:0 auto}
 </style>
 </head>
 <body>
-  <h2>🔥 مطعم حياوي براند</h2>
-  <h3>🪑 طاولة ${tableNum}</h3>
-  <div class="qr-wrap">${qrImg}</div>
-  <hr class="divider">
-  <div class="bc-wrap">${bcImg}</div>
-  ${hasWifi ? `<div class="wifi">📶 WiFi: <b>${ssid}</b><br><span style="font-size:10px;color:#888">امسح للاتصال ثم يُفتح المنيو</span></div>` : ''}
-  <div class="url">🔗 ${menuUrl}</div>
-  <div class="footer">امسح الكود للوصول للمنيو</div>
-  <button class="btn no-print" onclick="window.print()">🖨️ طباعة</button>
-  <script>window.onload=function(){setTimeout(function(){window.print();},600);}<\/script>
+  <h3>🔥 حياوي براند</h3>
+  <div class="sub">🪑 طاولة ${tableNum}</div>
+  <div class="bc">${bcImg}</div>
+  <script>window.addEventListener('load',function(){window.print();});<\/script>
 </body>
 </html>`;
 
@@ -2616,6 +2645,30 @@ function startFirebaseSync(branchId) {
 
   // Store unsubscribe fn
   _fbSyncListeners[branchId] = () => ordersRef.off('value', listener);
+
+  // ── Real-time menu sync for customers ──
+  const menuRef = _fbDb.ref('branches/' + branchId + '/menu');
+  const catsRef = _fbDb.ref('branches/' + branchId + '/categories');
+
+  menuRef.on('value', snap => {
+    try {
+      const data = snap.val();
+      if (!data) return;
+      const remoteItems = Object.values(data);
+      DB.set('items_' + branchId, remoteItems);
+      if (typeof renderMenu === 'function') renderMenu();
+    } catch(e) {}
+  });
+
+  catsRef.on('value', snap => {
+    try {
+      const data = snap.val();
+      if (!data) return;
+      const remoteCats = Object.values(data);
+      DB.set('categories_' + branchId, remoteCats);
+      if (typeof renderMenu === 'function') renderMenu();
+    } catch(e) {}
+  });
 }
 
 // Push a single new order to Firebase
@@ -2626,6 +2679,23 @@ function pushOrderToFirebase(order) {
       .set(order)
       .catch(e => console.warn('Firebase push error:', e));
   } catch(e) {}
+}
+
+// Push menu items and categories to Firebase
+function pushMenuToFirebase(){
+  if(!_fbDb) return;
+  try{
+    const items = DB.get('items_'+currentBranch,[]);
+    const cats = DB.get('categories_'+currentBranch,[]);
+    // Push items as object keyed by id
+    const itemsObj = {};
+    items.forEach(i=>{ itemsObj[i.id.replace(/[.#$\[\]]/g,'_')]=i; });
+    _fbDb.ref('branches/'+currentBranch+'/menu').set(itemsObj).catch(e=>console.warn(e));
+    // Push cats as object keyed by id
+    const catsObj = {};
+    cats.forEach(c=>{ catsObj[c.id.replace(/[.#$\[\]]/g,'_')]=c; });
+    _fbDb.ref('branches/'+currentBranch+'/categories').set(catsObj).catch(e=>console.warn(e));
+  }catch(e){}
 }
 
 // ══ FIREBASE CONNECT ══
