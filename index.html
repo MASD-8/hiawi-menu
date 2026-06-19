@@ -788,6 +788,7 @@ input:checked+.toggle-slider:before{transform:translateX(-20px)}
   <div class="admin-tabs">
     <button class="admin-tab active" onclick="switchOwner('ov',this)">📊 نظرة عامة</button>
     <button class="admin-tab" onclick="switchOwner('br',this)">🏪 الفروع</button>
+    <button class="admin-tab" onclick="switchOwner('archive',this)">🗄️ أرشيف الطلبات</button>
     <button class="admin-tab" onclick="switchOwner('perm',this)">🔐 الصلاحيات</button>
     <button class="admin-tab" onclick="switchOwner('pw-m',this)">🔑 كلمات السر</button>
     <button class="admin-tab" onclick="switchOwner('ow-log',this)">📋 السجل</button>
@@ -815,6 +816,16 @@ input:checked+.toggle-slider:before{transform:translateX(-20px)}
         • الكاشير يشوف فرعه بس، والمالك يشوف الكل
       </div>
     </div>
+  </div>
+
+  <!-- ORDERS ARCHIVE -->
+  <div class="admin-section" id="section-archive" style="padding:20px 16px 100px">
+    <div class="section-header">
+      <h3>🗄️ أرشيف الطلبات</h3>
+      <select id="archive-branch-select" class="form-input" style="width:auto;font-size:12px" onchange="renderOwnerOrdersArchive(this.value)"></select>
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px">الطلبات المصفّرة من كل فرع تُحفظ هنا مقسّمة لكل يوم، وتُحذف تلقائياً بعد أسبوع</div>
+    <div id="owner-orders-archive"></div>
   </div>
 
   <!-- PERMISSIONS -->
@@ -1240,9 +1251,9 @@ function updateTrackUI(o){
   $('track-card').style.display='';
   $('track-id').textContent=o.id;
   const bMap={
-    pending:['⏳ بانتظار التأكيد','sp'],
-    preparing:['👨‍🍳 يتحضر','sr'],
-    delivering:['🚀 في الطريق','sd'],
+    pending:['⏳ بانتظار التسليم','sp'],
+    preparing:['⏳ بانتظار التسليم','sp'],
+    delivering:['⏳ بانتظار التسليم','sp'],
     done:['✅ تم التسليم','sn'],
     cancelled:['❌ ملغي','sc']
   };
@@ -1250,13 +1261,10 @@ function updateTrackUI(o){
   $('track-badge').className='order-status '+b[1];
   $('track-badge').textContent=b[0];
   const steps=[
-    {key:'pending',label:'تم استلام الطلب',sub:'جاري مراجعة طلبك',icon:'✅'},
-    {key:'preparing',label:'يتحضر في المطبخ',sub:'الشيف يحضر وجبتك',icon:'👨‍🍳'},
-    {key:'delivering',label:'في الطريق إليك',sub:'طلبك قادم!',icon:'🚀'},
+    {key:'pending',label:'تم استلام طلبك',sub:'بانتظار الكابتن',icon:'⏳'},
     {key:'done',label:'تم التسليم 🎉',sub:'بالعافية! شكراً لزيارتك',icon:'🎉'},
   ];
-  const ord=['pending','preparing','delivering','done'];
-  const ci=ord.indexOf(o.status);
+  const ci = o.status==='done' ? 1 : 0;
   $('track-steps').innerHTML=steps.map((s,i)=>`
     <div class="track-step ${i<ci?'done':''} ${i===ci?'active':''}">
       <div class="track-dot">${s.icon}</div>
@@ -1266,8 +1274,6 @@ function updateTrackUI(o){
       </div>
     </div>`).join('');
   // Show toast on status change
-  if(o.status==='preparing') showToast('👨‍🍳 طلبك يتحضر الآن!','gold');
-  if(o.status==='delivering') showToast('🚀 طلبك في الطريق إليك!','gold');
   if(o.status==='done') showToast('🎉 تم تسليم طلبك! بالعافية','gold');
 }
 
@@ -1351,9 +1357,9 @@ function renderOrders(){
   // Update cashier totals
   updateCashierTotal(allOrders);
   if(!orders.length){el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">لا طلبات</div></div>';return;}
-  const sMap={pending:['⏳ بانتظار','sp'],preparing:['👨‍🍳 يتحضر','sr'],delivering:['🚀 بالطريق','sd'],done:['✅ تم','sn'],cancelled:['❌ ملغي','sc']};
+  const sMap={pending:['⏳ بانتظار','sp'],done:['✅ تم التسليم','sn'],cancelled:['❌ ملغي','sc']};
   // Color map per status
-  const bgMap={pending:'background:#1a1a2e;border-color:#f39c12',preparing:'background:#1a2a1a;border-color:#27ae60',delivering:'background:#1a1a3a;border-color:#3498db',done:'background:#111;border-color:#555',cancelled:'background:#1a0a0a;border-color:#e74c3c'};
+  const bgMap={pending:'background:#1a1a2e;border-color:#f39c12',done:'background:#111;border-color:#27ae60',cancelled:'background:#1a0a0a;border-color:#e74c3c'};
   el.innerHTML=orders.map(o=>`
     <div class="order-card" style="${bgMap[o.status]||bgMap.pending};border-width:2px;margin-bottom:14px">
       <div class="order-header">
@@ -1369,11 +1375,9 @@ function renderOrders(){
       <div class="order-footer" style="border-top:1px solid rgba(255,255,255,.1);padding-top:10px;margin-top:6px">
         <div class="order-total" style="color:#f0c960;font-size:18px;font-weight:900">${fmt(o.total)} د.ع</div>
         <div class="order-actions">
-          ${o.status==='pending'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','preparing')" style="background:#27ae60;color:#fff;border-color:#27ae60">👨‍🍳 يتحضر</button>`:''}
-          ${o.status==='preparing'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','delivering')" style="background:#3498db;color:#fff;border-color:#3498db">🚀 بالطريق</button>`:''}
-          ${o.status==='delivering'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','done')" style="background:#b8882a;color:#fff;border-color:#b8882a;font-size:14px;padding:8px 16px">✅ تم التسليم</button>`:''}
-          ${['pending','preparing'].includes(o.status)?`<button class="action-btn danger" onclick="cancelItem('${o.id}')">إلغاء وجبة</button>`:''}
-          ${!['done','cancelled'].includes(o.status)?`<button class="action-btn danger" onclick="setOrderStatus('${o.id}','cancelled')">❌ إلغاء</button>`:''}
+          ${o.status==='pending'?`<button class="action-btn" onclick="setOrderStatus('${o.id}','done')" style="background:#b8882a;color:#fff;border-color:#b8882a;font-size:14px;padding:8px 16px">✅ تم التسليم</button>`:''}
+          ${o.status==='pending'?`<button class="action-btn danger" onclick="cancelItem('${o.id}')">إلغاء وجبة</button>`:''}
+          ${o.status==='pending'?`<button class="action-btn danger" onclick="setOrderStatus('${o.id}','cancelled')">❌ إلغاء</button>`:''}
           <button class="action-btn" onclick="printOrder('${o.id}')">🖨️</button>
         </div>
       </div>
@@ -1391,13 +1395,78 @@ function updateCashierTotal(orders){
 }
 
 function clearAllOrders(){
-  if(!confirm('تصفير كل الطلبات؟ هذا يمسح كل الطلبات الحالية.')) return;
+  const allOrders = DB.get('orders_'+currentBranch,[]);
+  if(!allOrders.length){ showToast('لا توجد طلبات للتصفير','err'); return; }
+  if(!confirm('تصفير الطلبات؟ ستُحفظ في أرشيف صاحب المطعم لمدة أسبوع.')) return;
+
+  // Archive into owner's daily archive
+  const todayKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const archiveKey = 'orders_archive_'+currentBranch;
+  const archive = DB.get(archiveKey, {}); // { '2026-06-20': [orders...] }
+  archive[todayKey] = (archive[todayKey]||[]).concat(allOrders);
+
+  // Purge archive days older than 7 days
+  const cutoff = Date.now() - 7*24*60*60*1000;
+  Object.keys(archive).forEach(day=>{
+    if(new Date(day).getTime() < cutoff) delete archive[day];
+  });
+  DB.set(archiveKey, archive);
+
+  // Push archive to Firebase too so owner sees it from any device
+  try{
+    if(_fbDb){
+      _fbDb.ref('branches/'+currentBranch+'/orders_archive/'+todayKey).set(
+        (archive[todayKey]||[]).reduce((acc,o)=>{acc[o.id.replace(/[.#$\[\]]/g,'_')]=o;return acc;},{})
+      ).catch(e=>console.warn(e));
+      // Purge old days on Firebase
+      _fbDb.ref('branches/'+currentBranch+'/orders_archive').once('value').then(snap=>{
+        const d = snap.val()||{};
+        Object.keys(d).forEach(day=>{
+          if(new Date(day).getTime() < cutoff){
+            _fbDb.ref('branches/'+currentBranch+'/orders_archive/'+day).remove().catch(()=>{});
+          }
+        });
+      }).catch(()=>{});
+    }
+  }catch(e){}
+
+  // Clear current active orders
   DB.set('orders_'+currentBranch,[]);
-  // Also clear from Firebase
   try{ if(_fbDb) _fbDb.ref('branches/'+currentBranch+'/orders').remove(); }catch(e){}
-  addLog('تصفير كل الطلبات');
+
+  addLog('تصفير الطلبات وأرشفتها ليوم '+todayKey);
   renderOrders();
-  showToast('✅ تم تصفير الطلبات','ok');
+  showToast('✅ تم تصفير الطلبات وحفظها بأرشيف صاحب المطعم','ok');
+}
+
+// ===== OWNER: render archived orders grouped by day =====
+function renderOwnerOrdersArchive(branchId){
+  const archive = DB.get('orders_archive_'+branchId, {});
+  const cutoff = Date.now() - 7*24*60*60*1000;
+  const days = Object.keys(archive).filter(d=>new Date(d).getTime()>=cutoff).sort((a,b)=>new Date(b)-new Date(a));
+  const el = $('owner-orders-archive');
+  if(!el) return;
+  if(!days.length){ el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">لا أرشيف طلبات</div></div>'; return; }
+  el.innerHTML = days.map(day=>{
+    const dayOrders = (archive[day]||[]).slice().sort((a,b)=>new Date(b.time)-new Date(a.time));
+    const total = dayOrders.filter(o=>o.status==='done').reduce((s,o)=>s+(o.total||0),0);
+    const dayLabel = new Date(day).toLocaleDateString('ar-IQ',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    return `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:800;color:#f0c960">📅 ${dayLabel}</div>
+        <div style="font-size:13px;color:#27ae60;font-weight:700">${fmt(total)} د.ع</div>
+      </div>
+      <div style="font-size:12px;color:#aaa;margin-bottom:8px">${dayOrders.length} طلب</div>
+      <div style="max-height:240px;overflow-y:auto">
+        ${dayOrders.map(o=>`
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #2a2a2a;font-size:12px">
+            <div style="color:#ddd">🪑 ${o.tableNum||'—'} • ${o.items.map(i=>i.name+' ×'+i.qty).join('، ')}</div>
+            <div style="color:#f0c960;font-weight:700">${fmt(o.total)} د.ع</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function setOrderStatus(id,status){
@@ -1554,11 +1623,12 @@ function renderAdminMenu(filter){
                 <div class="manage-meta" style="font-size:13px;color:#f0c960;font-weight:600;margin-top:2px">${fmt(item.price)} د.ع</div>
               </div>
               <button class="hide-btn ${item.hidden ? 'is-hidden' : ''}" onclick="toggleHide('${item.id}')" style="font-size:11px;padding:5px 8px;background:rgba(255,255,255,.05);border:1px solid #444;border-radius:6px;color:#ddd;cursor:pointer">${item.hidden ? '👁️ إظهار' : '🙈 إخفاء'}</button>
+              <button onclick="openEditItem('${item.id}')" style="font-size:11px;padding:5px 8px;background:rgba(52,152,219,.12);border:1px solid #3498db;border-radius:6px;color:#3498db;cursor:pointer">✏️ تعديل</button>
               <label class="toggle" style="margin:0 4px" title="${item.available ? 'متوفر' : 'نفذ'}">
                 <input type="checkbox" ${item.available ? 'checked' : ''} onchange="toggleAvail('${item.id}',this.checked)">
                 <span class="tslider"></span>
               </label>
-              <button class="btn-danger" style="padding:5px 8px;font-size:12px" onclick="delItem('${item.id}')">🗑️</button>
+              <button class="btn-danger" style="padding:5px 8px;font-size:12px" onclick="deleteItem('${item.id}')">🗑️</button>
             </div>`).join('')
           }
           <!-- Add item button -->
@@ -1651,7 +1721,7 @@ function filterManageItems(f){
           <div class="manage-thumb">${item.img?`<img src="${item.img}">`:(item.emoji||'🍽️')}</div>
           <div class="manage-info"><div class="manage-name">${item.name}</div><div class="manage-meta">${fmt(item.price)} د.ع • ${cats.find(c=>c.id===item.catId)?.name||''}</div></div>
           <button class="hide-btn is-hidden" onclick="toggleHide('${item.id}')">👁️ إظهار</button>
-          <button class="btn-danger" style="font-size:11px;padding:5px 8px" onclick="delItem('${item.id}')">🗑️</button>
+          <button class="btn-danger" style="font-size:11px;padding:5px 8px" onclick="deleteItem('${item.id}')">🗑️</button>
         </div>`).join('')
         :'<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-title">لا يوجد وجبات مخفية</div></div>';
     }
@@ -1708,6 +1778,95 @@ function deleteItem(id){
   addLog(`حذف وجبة: ${item?.name}`);
   pushMenuToFirebase();
   renderAdminMenu();renderMenu();showToast('✅ تم الحذف');
+}
+
+// ===== EDIT ITEM =====
+function openEditItem(id){
+  const items = DB.get('items_'+currentBranch, []);
+  const item = items.find(i=>i.id===id);
+  if(!item) return;
+  let modal = document.getElementById('edit-item-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'edit-item-modal';
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    modal.innerHTML = `
+      <div style="background:#1a1a1a;border:1px solid #444;border-radius:16px;padding:18px;max-width:380px;width:100%;max-height:90vh;overflow-y:auto">
+        <div style="font-size:15px;font-weight:800;color:#f0c960;margin-bottom:14px">✏️ تعديل الوجبة</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px">اسم الوجبة *</label><input class="adm-fi" id="edit-name"></div>
+          <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px">السعر (دينار) *</label><input class="adm-fi" id="edit-price" type="number"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px">الوصف</label><input class="adm-fi" id="edit-desc"></div>
+          <div><label style="font-size:11px;color:#888;display:block;margin-bottom:3px">الإيموجي</label><input class="adm-fi" id="edit-emoji" maxlength="4"></div>
+        </div>
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;color:#888;display:block;margin-bottom:3px">صورة الوجبة</label>
+          <div style="border:1px dashed #555;border-radius:8px;padding:10px;text-align:center;cursor:pointer" onclick="document.getElementById('edit-img-file').click()">
+            <input type="file" id="edit-img-file" accept="image/*" style="display:none" onchange="previewEditImg(this)">
+            <div id="edit-img-placeholder" style="font-size:20px;color:#555">📷 اضغط لاختيار صورة</div>
+            <img id="edit-img-prev" style="display:none;width:100%;height:90px;object-fit:cover;border-radius:6px;margin-top:6px">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="adm-btn" style="flex:1" onclick="saveEditItem()">✅ حفظ التعديلات</button>
+          <button class="adm-btn-out" style="flex:1" onclick="closeEditItem()">إلغاء</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  modal.dataset.itemId = id;
+  $('edit-name').value = item.name || '';
+  $('edit-price').value = item.price || '';
+  $('edit-desc').value = item.desc || '';
+  $('edit-emoji').value = item.emoji || '';
+  const prev = $('edit-img-prev');
+  const ph = $('edit-img-placeholder');
+  if(item.img){ prev.src = item.img; prev.style.display='block'; ph.style.display='none'; }
+  else { prev.style.display='none'; ph.style.display='block'; }
+  modal.style.display = 'flex';
+}
+
+function closeEditItem(){
+  const modal = document.getElementById('edit-item-modal');
+  if(modal) modal.style.display = 'none';
+}
+
+function previewEditImg(input){
+  const file = input.files[0]; if(!file) return;
+  const r = new FileReader();
+  r.onload = e => {
+    const prev = $('edit-img-prev'); const ph = $('edit-img-placeholder');
+    prev.src = e.target.result; prev.style.display='block'; ph.style.display='none';
+  };
+  r.readAsDataURL(file);
+}
+
+function saveEditItem(){
+  const modal = document.getElementById('edit-item-modal');
+  const id = modal?.dataset.itemId;
+  if(!id) return;
+  const name = $('edit-name').value.trim();
+  const price = parseInt($('edit-price').value);
+  if(!name || !price){ showToast('❌ أدخل الاسم والسعر','err'); return; }
+  const items = DB.get('items_'+currentBranch, []);
+  const item = items.find(i=>i.id===id);
+  if(!item) return;
+  item.name = name;
+  item.price = price;
+  item.desc = $('edit-desc').value || '';
+  item.emoji = $('edit-emoji').value || '🍽️';
+  const prev = $('edit-img-prev');
+  if(prev.style.display !== 'none') item.img = prev.src;
+  DB.set('items_'+currentBranch, items);
+  addLog(`تعديل وجبة: ${name}`);
+  pushMenuToFirebase();
+  renderAdminMenu();
+  renderMenu();
+  closeEditItem();
+  showToast('✅ تم حفظ التعديلات','ok');
 }
 
 function addCategory(){
@@ -2006,8 +2165,17 @@ function switchOwner(tab,btn){
   document.querySelectorAll('#owner-panel .admin-section').forEach(s=>s.classList.remove('active'));
   btn?.classList.add('active');
   $('section-'+tab)?.classList.add('active');
-  const fns={ov:renderOwnerOverview,br:renderBranches,perm:renderPermissions,'pw-m':renderPwList,'ow-log':renderOwnerLog};
+  const fns={ov:renderOwnerOverview,br:renderBranches,archive:initArchiveTab,perm:renderPermissions,'pw-m':renderPwList,'ow-log':renderOwnerLog};
   fns[tab]?.();
+}
+
+function initArchiveTab(){
+  const branches = DB.get('branches',[]);
+  const sel = $('archive-branch-select');
+  if(sel){
+    sel.innerHTML = branches.map(b=>`<option value="${b.id}">${b.name}</option>`).join('');
+    if(branches.length) renderOwnerOrdersArchive(sel.value || branches[0].id);
+  }
 }
 
 function renderOwnerOverview(){
@@ -2313,8 +2481,9 @@ function showTableQR(tableNum) {
   const tbl = tables.find(t => t.num === tableNum);
   if (!tbl) return;
   const { qrData, menuUrl, hasWifi, ssid } = buildQRData(tbl.id);
-  document.getElementById('qr-modal-title').textContent = `🪑 طاولة ${tableNum}`;
-  const qrBox = document.getElementById('qr-code-box');
+  const titleEl = document.getElementById('qr-title');
+  if(titleEl) titleEl.textContent = `🪑 طاولة ${tableNum}`;
+  const qrBox = document.getElementById('qr-box');
   qrBox.innerHTML = '';
   // WiFi info
   let wifiBox = document.getElementById('wifi-qr-info-box');
@@ -2331,7 +2500,7 @@ function showTableQR(tableNum) {
   } catch(e) {
     qrBox.innerHTML = `<div style="font-size:10px;color:#333;padding:8px;word-break:break-all;text-align:center">${qrData}</div>`;
   }
-  const canvas = document.getElementById('barcode-canvas');
+  const canvas = document.getElementById('bc-canvas');
   try {
     JsBarcode(canvas, tbl.id.substring(0, 12), { format: 'CODE128', width: 2, height: 50, displayValue: true, text: `طاولة ${tableNum}`, fontSize: 12, background: '#ffffff', lineColor: '#1a1208' });
   } catch(e) {}
@@ -2343,15 +2512,15 @@ function showTableQR(tableNum) {
   openModal('qr-modal');
 }
 
-// ===== OVERRIDE printQR - barcode only =====
+// ===== OVERRIDE printQR - barcode only, opens browser print dialog =====
 function printQR() {
   const modal = document.getElementById('qr-modal');
   if(!modal){ showToast('❌ خطأ في الطباعة','err'); return; }
   const tableNum = modal.dataset.tableNum || '';
 
-  // Get barcode image only
+  // Get barcode image only (correct element id: bc-canvas)
   let bcImg = '';
-  const bcCanvas = document.getElementById('barcode-canvas');
+  const bcCanvas = document.getElementById('bc-canvas');
   if(bcCanvas){
     try{ bcImg = `<img src="${bcCanvas.toDataURL()}" style="max-width:260px;display:block;margin:0 auto">`; }catch(e){}
   }
