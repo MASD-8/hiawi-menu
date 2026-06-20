@@ -2703,7 +2703,10 @@ setTimeout(() => {
 }, 200);
 
 
-// ══ REAL-TIME ORDER POLLING ══
+// ══ REAL-TIME ORDER POLLING (silent fallback — refreshes the list only) ══
+// Notification (toast + sound) is now handled exclusively by the Firebase
+// child_added listener and the BroadcastChannel handler below, to avoid the
+// same order triggering multiple duplicate "new order" alerts.
 let _lastOrderTs = 0;
 function startOrderPolling(){
   clearInterval(window._pollTimer);
@@ -2713,16 +2716,6 @@ function startOrderPolling(){
     const newOrders = orders.filter(o => new Date(o.time).getTime() > _lastOrderTs);
     if(newOrders.length > 0){
       _lastOrderTs = Date.now();
-      showToast(`🔔 ${newOrders.length} طلب جديد!`, 'gold');
-      try{
-        const ac = new AudioContext();
-        const osc = ac.createOscillator();
-        const g = ac.createGain();
-        osc.connect(g); g.connect(ac.destination);
-        osc.frequency.value = 880; g.gain.setValueAtTime(0.3, ac.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
-        osc.start(); osc.stop(ac.currentTime + 0.3);
-      } catch(e){}
       if(document.getElementById('section-orders')?.classList.contains('active')) renderOrders();
     }
   }, 3000);
@@ -2823,13 +2816,24 @@ printOrder = function(id, directObj) {
 };
 
 // ══ AUTO-START POLLING on admin panel ══
+// Only start polling ONCE when the admin panel actually opens — not on every
+// class change anywhere on the page (the previous version watched the whole
+// document subtree, so any toast/modal/tab-switch class change re-triggered
+// polling, causing spurious repeated "new order" notifications).
+let _pollingStarted = false;
 document.addEventListener('DOMContentLoaded', () => {
   const obs = new MutationObserver(() => {
-    if(document.getElementById('admin-panel')?.classList.contains('active')){
+    const isAdminActive = document.getElementById('admin-panel')?.classList.contains('active');
+    if (isAdminActive && !_pollingStarted) {
+      _pollingStarted = true;
       startOrderPolling();
+    } else if (!isAdminActive && _pollingStarted) {
+      // Admin panel closed — stop polling until it's reopened
+      _pollingStarted = false;
+      clearInterval(window._pollTimer);
     }
   });
-  obs.observe(document.body, { attributes:true, attributeFilter:['class'], subtree:true });
+  obs.observe(document.getElementById('admin-panel') || document.body, { attributes:true, attributeFilter:['class'] });
 });
 
 // ══ FIREBASE CORE FUNCTIONS ══
@@ -3118,8 +3122,13 @@ try{
         setTimeout(()=>{
           if(document.getElementById('section-orders')?.classList.contains('active'))renderOrders();
           if(document.getElementById('section-stats-m')?.classList.contains('active'))renderStats();
-          showToast('🔔 طلب جديد!','gold');
-          try{const ac=new AudioContext();const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.4);o.start();o.stop(ac.currentTime+.4);}catch(e){}
+          // Only notify here if Firebase isn't connected — otherwise the
+          // Firebase child_added listener already handles this notification,
+          // and showing both would duplicate the alert for the same order.
+          if(!_fbDb){
+            showToast('🔔 طلب جديد!','gold');
+            try{const ac=new AudioContext();const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.frequency.value=880;g.gain.setValueAtTime(.3,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.4);o.start();o.stop(ac.currentTime+.4);}catch(e){}
+          }
         },200);
       }
     }
