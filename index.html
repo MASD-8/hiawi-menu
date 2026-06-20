@@ -1373,6 +1373,8 @@ function submitRating(){
   if(!curRating){showToast('❌ اختر تقييمك','error');return;}
   const r={id:'R-'+Date.now(),stars:curRating,notes:$('rate-notes').value,orderId:currentOrder?.id||null,time:new Date().toISOString()};
   const rats=DB.get('ratings_'+currentBranch,[]);rats.unshift(r);DB.set('ratings_'+currentBranch,rats);
+  // Push to Firebase so the cashier/owner sees it even from a different device
+  try{ if(_fbDb) _fbDb.ref('branches/'+currentBranch+'/ratings/'+r.id).set(r).catch(()=>{}); }catch(e){}
   // Remember this order/device already submitted a rating so the form won't show again
   DB.set(_rateFlagKey(), true);
   addLog(`تقييم جديد: ${curRating} نجوم`);
@@ -2883,7 +2885,16 @@ function startFirebaseSync(branchId) {
     }
   }).catch(()=>{});
 
-  // Listen for remote changes and sync to localStorage
+  // Track which order IDs we've already notified about, to survive Firebase's
+  // automatic reconnect behavior (it resends the full snapshot via 'value' after
+  // any network blip, which previously caused false "new order" notifications).
+  if (!window._fbNotifiedIds) window._fbNotifiedIds = new Set();
+  const seenIds = window._fbNotifiedIds;
+  // Seed with whatever orders already exist locally, so we don't notify for old orders.
+  DB.get('orders_' + branchId, []).forEach(o => seenIds.add(o.id));
+
+  // Listen for remote changes and sync to localStorage (no notification here —
+  // this fires on every reconnect with the full current snapshot)
   const listener = ordersRef.on('value', snapshot => {
     try {
       const data = snapshot.val();
@@ -2899,14 +2910,35 @@ function startFirebaseSync(branchId) {
         if (document.getElementById('admin-panel')?.classList.contains('active')) {
           if (document.getElementById('section-orders')?.classList.contains('active')) renderOrders();
           if (document.getElementById('section-stats-m')?.classList.contains('active')) renderStats();
-          showToast('🔔 طلبات محدّثة من Firebase', 'gold');
         }
       }
     } catch(e) { console.warn('Firebase sync error:', e); }
   }, err => { console.warn('Firebase listen error:', err); });
 
+  // Separate listener: fires ONLY for genuinely new orders (not on reconnect replay),
+  // so the "🔔 new order" toast is accurate.
+  const addedListener = ordersRef.on('child_added', snapshot => {
+    try {
+      const o = snapshot.val();
+      if (!o || !o.id) return;
+      if (seenIds.has(o.id)) return; // already known, not a new order
+      seenIds.add(o.id);
+      // Skip the very first burst (initial sync of existing orders on page load)
+      if (!window._fbInitialSyncDone || !window._fbInitialSyncDone[branchId]) return;
+      if (document.getElementById('admin-panel')?.classList.contains('active')) {
+        showToast('🔔 طلب جديد!', 'gold');
+      }
+    } catch(e) {}
+  });
+  // Mark initial sync complete shortly after attaching, so child_added events
+  // from the existing dataset (fired once on attach) don't trigger a notification.
+  if (!window._fbInitialSyncDone) window._fbInitialSyncDone = {};
+  ordersRef.once('value').then(() => {
+    setTimeout(() => { window._fbInitialSyncDone[branchId] = true; }, 1000);
+  }).catch(()=>{});
+
   // Store unsubscribe fn
-  _fbSyncListeners[branchId] = () => ordersRef.off('value', listener);
+  _fbSyncListeners[branchId] = () => { ordersRef.off('value', listener); ordersRef.off('child_added', addedListener); };
 
   // ── Real-time menu sync for customers ──
   const menuRef = _fbDb.ref('branches/' + branchId + '/menu');
@@ -2930,6 +2962,27 @@ function startFirebaseSync(branchId) {
       DB.set('categories_' + branchId, remoteCats);
       if (typeof renderMenu === 'function') renderMenu();
     } catch(e) {}
+  });
+
+  // ── Real-time ratings sync (customer → cashier/owner) ──
+  const ratingsRef = _fbDb.ref('branches/' + branchId + '/ratings');
+  ratingsRef.on('value', snap => {
+    try {
+      const data = snap.val();
+      if (!data) return;
+      const remoteRatings = Object.values(data).sort((a,b)=>new Date(b.time)-new Date(a.time));
+      const localIds = new Set(DB.get('ratings_' + branchId, []).map(r => r.id));
+      let hasNew = false;
+      remoteRatings.forEach(r => { if (!localIds.has(r.id)) hasNew = true; });
+      if (hasNew) {
+        DB.set('ratings_' + branchId, remoteRatings);
+        if (document.getElementById('admin-panel')?.classList.contains('active')) {
+          if (document.getElementById('section-ratings-m')?.classList.contains('active')) renderRatings();
+          if (document.getElementById('section-stats-m')?.classList.contains('active')) renderStats();
+        }
+        if (document.getElementById('owner-panel')?.classList.contains('active')) renderOwnerOverview();
+      }
+    } catch(e) { console.warn('Firebase ratings sync error:', e); }
   });
 }
 
